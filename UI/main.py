@@ -1,8 +1,3 @@
-# ─────────────────────────────────────────────────────────────────────────────
-#  JobFinder – complete application file
-#  Replace your previous file entirely with this one.
-# ─────────────────────────────────────────────────────────────────────────────
-
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
@@ -13,7 +8,6 @@ import datetime
 import webbrowser
 import shutil
 
-# PostgreSQL driver – install with:  pip install psycopg2-binary
 try:
     import psycopg2
     import psycopg2.extras
