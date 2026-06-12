@@ -54,7 +54,7 @@ def _pg_ensure_tables():
     with _pg_connect() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS favorites (
+                CREATE TABLE IF NOT EXISTS favorites_jobs (
                     id                SERIAL PRIMARY KEY,
                     company_name      TEXT NOT NULL,
                     job_title         TEXT NOT NULL,
@@ -66,11 +66,28 @@ def _pg_ensure_tables():
                     company_logo_path TEXT,
                     created_at        TIMESTAMPTZ DEFAULT now()
                 );
-                CREATE TABLE IF NOT EXISTS curriculums (
-                    id          SERIAL PRIMARY KEY,
-                    filename    TEXT NOT NULL,
-                    file_data   BYTEA NOT NULL,
-                    uploaded_at TIMESTAMPTZ DEFAULT now()
+                CREATE TABLE IF NOT EXISTS curriculum (
+                    id               SERIAL PRIMARY KEY,
+                    filename         TEXT NOT NULL,
+                    file_data        BYTEA NOT NULL,
+                    uploaded_at      TIMESTAMPTZ DEFAULT now(),
+                    raw_text         TEXT,
+                    candidate_name   TEXT,
+                    email            TEXT,
+                    phone            TEXT,
+                    location         TEXT,
+                    keywords         TEXT[],
+                    hard_skills      TEXT[],
+                    soft_skills      TEXT[],
+                    languages        TEXT[],
+                    years_experience INTEGER,
+                    seniority_level  TEXT,
+                    education_level  TEXT,
+                    education_field  TEXT,
+                    ml_processed     BOOLEAN DEFAULT false,
+                    ml_processed_at  TIMESTAMPTZ,
+                    ml_model_version TEXT,
+                    embedding        VECTOR(1536)
                 );
             """)
         conn.commit()
@@ -83,7 +100,7 @@ def pg_add_favorite(job: dict):
     with _pg_connect() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO favorites
+                INSERT INTO favorites_jobs
                     (company_name, job_title, salary, location,
                      deadline, link_url, match_pct, company_logo_path)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
@@ -98,7 +115,7 @@ def pg_remove_favorite(company_name: str, job_title: str):
     _pg_ensure_tables()
     with _pg_connect() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM favorites WHERE company_name=%s AND job_title=%s",
+            cur.execute("DELETE FROM favorites_jobs WHERE company_name=%s AND job_title=%s",
                         (company_name, job_title))
         conn.commit()
 
@@ -110,7 +127,7 @@ def pg_load_favorites() -> list[dict]:
             cur.execute("""
                 SELECT company_name, job_title, salary, location,
                        deadline, link_url, match_pct, company_logo_path
-                FROM favorites ORDER BY created_at DESC
+                FROM favorites_jobs ORDER BY created_at DESC
             """)
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -120,7 +137,7 @@ def pg_is_favorite(company_name: str, job_title: str) -> bool:
     _pg_ensure_tables()
     with _pg_connect() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM favorites WHERE company_name=%s AND job_title=%s LIMIT 1",
+            cur.execute("SELECT 1 FROM favorites_jobs WHERE company_name=%s AND job_title=%s LIMIT 1",
                         (company_name, job_title))
             return cur.fetchone() is not None
 
@@ -136,7 +153,7 @@ def pg_upload_curriculum(file_path: str) -> int:
     with _pg_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO curriculums (filename, file_data) VALUES (%s,%s) RETURNING id",
+                "INSERT INTO curriculum (filename, file_data) VALUES (%s,%s) RETURNING id",
                 (filename, psycopg2.Binary(data))
             )
             new_id = cur.fetchone()[0]
@@ -149,7 +166,7 @@ def pg_load_curriculums() -> list[dict]:
     _pg_ensure_tables()
     with _pg_connect() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id, filename, uploaded_at FROM curriculums ORDER BY uploaded_at DESC")
+            cur.execute("SELECT id, filename, uploaded_at FROM curriculum ORDER BY uploaded_at DESC")
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
 
@@ -159,7 +176,7 @@ def pg_download_curriculum(row_id: int, dest_path: str):
     _pg_ensure_tables()
     with _pg_connect() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT file_data FROM curriculums WHERE id=%s", (row_id,))
+            cur.execute("SELECT file_data FROM curriculum WHERE id=%s", (row_id,))
             row = cur.fetchone()
     if row is None:
         raise ValueError(f"No curriculum found with id={row_id}")
@@ -176,7 +193,7 @@ def pg_update_curriculum(row_id: int, new_file_path: str):
     with _pg_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE curriculums SET filename=%s, file_data=%s, uploaded_at=now() WHERE id=%s",
+                "UPDATE curriculum SET filename=%s, file_data=%s, uploaded_at=now() WHERE id=%s",
                 (filename, psycopg2.Binary(data), row_id)
             )
         conn.commit()
@@ -186,7 +203,7 @@ def pg_delete_curriculum(row_id: int):
     _pg_ensure_tables()
     with _pg_connect() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM curriculums WHERE id=%s", (row_id,))
+            cur.execute("DELETE FROM curriculum WHERE id=%s", (row_id,))
         conn.commit()
 
 
@@ -763,9 +780,28 @@ class JobFinderApp(ctk.CTk):
                 "salary": "$180.000/Y",
                 "location": "Portland - US",
                 "deadline": "20/06/2026",
-                "link_url": "",   # insert the real job URL here
+                "link_url": "https://iberdrola.wd3.myworkdayjobs.com/en-US/Iberdrola/details/Lead-Civil-Engineer_R-30218-1?ZCF_HCM_EEB_Subholding_Job_Posting_Anchor_Extended=59c5d91f3d96100fc6c399067e2d0001&locationRegionStateProvince=6fcc4198762c4a7c807486c849fe94ddhttps://iberdrola.wd3.myworkdayjobs.com/en-US/Iberdrola/details/Lead-Civil-Engineer_R-30218-1?ZCF_HCM_EEB_Subholding_Job_Posting_Anchor_Extended=59c5d91f3d96100fc6c399067e2d0001&locationRegionStateProvince=6fcc4198762c4a7c807486c849fe94dd",   # insert the real job URL here
                 "match_pct": 99,
+            },{
+                "company_logo_path": "cimpress.png",
+                "company_name": "Cimpress",
+                "job_title": "Senior Data Analyst",
+                "salary": "$120.000/Y",
+                "location": "Venlo - NL",
+                "deadline": "30/07/2026",
+                "link_url": "https://cimpress.wd3.myworkdayjobs.com/cimpress/job/Venlo-Senior-Data-Analyst_R-12345?location=Venlo",   # insert the real job URL here
+                "match_pct": 87,
+            },{
+                "company_logo_path": "iberdrola.png",
+                "company_name": "Iberdrola",
+                "job_title": "Renewable Energy Consultant",
+                "salary": "$150.000/Y",
+                "location": "Madrid - ES",
+                "deadline": "15/08/2026",
+                "link_url": "https://iberdrola.wd3.myworkdayjobs.com/en-US/Iberdrola/details/Renewable-Energy-Consultant_R-54321?ZCF_HCM_EEB_Subholding_Job_Posting_Anchor_Extended=abc123def456ghi789&locationRegionStateProvince=6fcc4198762c4a7c807486c849fe94dd",   # insert the real job URL here
+                "match_pct": 92,
             },
+
         ]
 
         for idx, job in enumerate(sample_jobs):
