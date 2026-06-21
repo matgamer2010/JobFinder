@@ -1,5 +1,6 @@
 import psycopg2
 import os
+import sys
 from dotenv import load_dotenv
 from docx import Document
 import spacy
@@ -33,7 +34,16 @@ from io import BytesIO
 
 """
 
-load_dotenv()
+def resource_path(*parts):
+    base_dir = getattr(sys, "_MEIPASS", os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    return os.path.join(base_dir, *parts)
+
+
+env_file = resource_path(".env")
+if os.path.exists(env_file):
+    load_dotenv(env_file)
+else:
+    load_dotenv()
 nltk.download("stopwords")
 nltk.download("punkt_tab")
 stopwords_pt = set(stopwords.words('portuguese'))
@@ -42,11 +52,11 @@ stopwords_en.discard("not")
 nlp = spacy.load("pt_core_news_md")
 
 conn = psycopg2.connect(
-        database= f"{os.getenv("DB_NAME")}",
-        user    = f"{os.getenv("DB_USER")}",
-        password= f"{os.getenv("DB_PASSWORD")}",
-        host    = f"{os.getenv("DB_HOST")}",
-        port    = f"{os.getenv("DB_PORT")}"
+        database=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT")
 )
 
 cursor = conn.cursor()
@@ -122,6 +132,8 @@ def KeyWords():
     most_common_words = word_freq.most_common(10)
     comprehension = [word for word in most_common_words if len(word[0]) >2]
     return comprehension
+
+# We can use embeddings to improve the accuracy of similarity. 
 
 conn.close()
 

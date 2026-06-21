@@ -14,14 +14,27 @@ import psycopg2
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+def resource_path(*parts):
+    base_dir = getattr(sys, "_MEIPASS", os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    return os.path.join(base_dir, *parts)
+
+
+env_file = resource_path(".env")
+if os.path.exists(env_file):
+    load_dotenv(env_file)
+else:
+    load_dotenv()
+
+# --------------------------------------------------
+#   I used the Codex to fix some bugs on the project 
+# --------------------------------------------------
 
 conn = psycopg2.connect(
-        database= f"{os.getenv("DB_NAME")}",
-        user    = f"{os.getenv("DB_USER")}",
-        password= f"{os.getenv("DB_PASSWORD")}",
-        host    = f"{os.getenv("DB_HOST")}",
-        port    = f"{os.getenv("DB_PORT")}"
+        database=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT")
 )
 
 cursor = conn.cursor()
@@ -115,15 +128,33 @@ def create_url(errors: int, search_error: str):
             break
     return url
 
-def BrowsingForJobs():
+def normalize_title(title):
+    title = title or ""
+    title = title.strip().lower()
+    return re.sub(r"\s+", " ", title)
 
+
+def is_the_title_in_blacklist(title):
+    normalized_title = normalize_title(title)
     blacklist = [
         "mechanical",
-        "mechanincal engineer",
-        "mechanical engineering"
+        "mechanical engineer",
+        "mechanical engineering",
         "electrical engineer",
         "electrical engineering",
+        "thermal",
+        "thermal engineering",
+        "thermal engineer"
     ]
+
+    for blocked_title in blacklist:
+        if re.search(rf"\b{re.escape(blocked_title)}\b", normalized_title):
+            return True
+
+    return False
+
+def BrowsingForJobs():
+
 
     with sync_playwright() as playwright:
 
@@ -131,14 +162,15 @@ def BrowsingForJobs():
         # Launching the browser and going to the url
         # ------------------------------------------
         
-        # -------------- make the headless be True
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page()
+        page.set_default_timeout(10000)  
         url = create_url(0, "")
         page.goto(url)
         print("\n", "------- URL: ", url, "-----------","\n")
         page.wait_for_timeout(5000)
 
+        print(" ----------- test1")
         try:
             does_not_match = page.locator('xpath=//*[@id="main-content"]/section[1]/h1')
             i=1
@@ -157,7 +189,7 @@ def BrowsingForJobs():
                     break
         except:
             pass
-
+        print(" ----------- test2")
         # ---------------------------------------------------------------------
         # Getting data from Linkeding and handling them to store into the table
         # ---------------------------------------------------------------------
@@ -176,21 +208,23 @@ def BrowsingForJobs():
         for job_id in job_ids:
             jobs_oppenings.append(f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}")
 
-        old_job_oppenings = cursor.execute("SELECT * FROM JOBS")
-        if old_job_oppenings:
-            cursor.execute("TRUNCATE TABLE jobs RESTART IDENTITY")
-            conn.commit()
+        cursor.execute("TRUNCATE TABLE jobs RESTART IDENTITY")
+        conn.commit()
 
+        print(" ----------- test3")
         final_jobs_dicts_list = []
+        jobs_titles = set()
         for job in jobs_oppenings:
             new_page = browser.new_page()
             new_page.goto(job)
             page.wait_for_timeout(5000)
 
             try:
-                title = new_page.locator('.top-card-layout__title').text_content()
-                if title.lower() in blacklist:
+                title = normalize_title(new_page.locator('.top-card-layout__title').text_content())
+                if is_the_title_in_blacklist(title) or title in jobs_titles:
+                    print("-----moving on...")
                     continue
+                print("Nothing went wrong with the job title")
                 location = new_page.locator('xpath=/html/body/section/div/div[1]/div/h4/div[1]/span[2]').text_content()
                 company = new_page.locator('.topcard__org-name-link').text_content()
                 job_text = new_page.locator('xpath=/html/body/div/section[1]/div/div/section/div').text_content()
@@ -203,7 +237,6 @@ def BrowsingForJobs():
                     translated = GoogleTranslator(source='en', target='pt').translate(chunk)
                     translated_chunks.append(translated)
                 job_text = ''.join(translated_chunks)
-                job_link = job
                 similarity = ReturnSimilatity(job_text)
                 try:
                     logo = new_page.locator('xpath=/html/body/section/div/a/img').get_attribute("data-delayed-url")
@@ -213,8 +246,19 @@ def BrowsingForJobs():
                     salary = re.findall(r'\$\d+(?:,\d{3})*(?:\.\d+)?', job_text)
                 except:
                     salary = "Not found"
+                print(f'The company: {company} \n Got this similarity: {similarity} \n')
+                if not similarity >= 0.6:
+                    continue
+                jobs_titles.add(title)
+                try:
+                    new_page.locator('.top-card-layout__title').click()
+                    new_page.wait_for_timeout(5000)
+                    job_link = new_page.url
+                except:
+                    job_link = job                  
+                
                 final_jobs_dicts_list.append({
-                    "title": title.lower(),
+                    "title": title,
                     "location": location,
                     "company": company,
                     "job_text": job_text,
@@ -222,9 +266,6 @@ def BrowsingForJobs():
                     "similarity": similarity,
                     "logo": logo,
                 })
-                print(f'The company: {company} \n Got this similarity: {similarity} \n')
-                if not similarity >= 0.6:
-                    continue
                 if len(final_jobs_dicts_list) == 60:
                     break
                 try:
@@ -243,7 +284,7 @@ def BrowsingForJobs():
                         """,
                         (
                             company,
-                            title.lower(),
+                            title,
                             job_text,
                             location,
                             job_link,
@@ -255,11 +296,13 @@ def BrowsingForJobs():
                     print("Everything has worked!")
                 except Exception as e:
                     print(f'Error: {e}')
+                    continue
 
             except Exception as e:
                 print(f"Let's try the next one. But see the error: {e}")
                 continue
-            new_page.close()
+            finally:
+                new_page.close()
         browser.close()
 
 if __name__ == "__main__":

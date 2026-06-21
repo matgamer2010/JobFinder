@@ -43,4 +43,17 @@
 *.docx
 *.doc
 *.png
+*.spec
+build_release_env/
+release_env/
+.agents/
+
+build/
+dist/
+build_release_env/
+build_release2/
+
+*.pkg
+*.pyz
+
 # End of https://www.toptal.com/developers/gitignore/api/c++

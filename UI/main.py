@@ -1,17 +1,26 @@
 import tkinter as tk
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from PIL import Image
 from dotenv import load_dotenv
-import os
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from webscrapping.main import BrowsingForJobs
 import datetime
 import webbrowser
 import shutil
 import requests
+from tkinter import messagebox 
 from io import BytesIO
+import threading
+import importlib.util
+
+
+def resource_path(*parts):
+    base_dir = getattr(sys, "_MEIPASS", os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    return os.path.join(base_dir, *parts)
+
 
 try:
     import psycopg2
@@ -20,7 +29,11 @@ try:
 except ImportError:
     _PG_AVAILABLE = False
 
-load_dotenv()
+env_file = resource_path(".env")
+if os.path.exists(env_file):
+    load_dotenv(env_file)
+else:
+    load_dotenv()
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Runtime DB credentials (overridden by the in-app form when the user connects)
@@ -42,7 +55,6 @@ except Exception as e:
         "user":     "",
         "password": "",
     }
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  PostgreSQL helpers
@@ -233,6 +245,11 @@ def pg_delete_curriculum(row_id: int):
 #  Main application
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _call_browsing_for_jobs():
+    from webscrapping.main import BrowsingForJobs
+
+    BrowsingForJobs()
+
 class JobFinderApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -265,8 +282,8 @@ class JobFinderApp(ctk.CTk):
         # ── Hamburger (close sidebar) ─────────────────────────────────────
         try:
             _menu_img = ctk.CTkImage(
-                light_image=Image.open("menu.png"),
-                dark_image=Image.open("menu.png"),
+                light_image=Image.open(resource_path("UI", "menu.png")),
+                dark_image=Image.open(resource_path("UI", "menu.png")),
                 size=(24, 24)
             )
             sidebar_button = ctk.CTkButton(
@@ -287,8 +304,8 @@ class JobFinderApp(ctk.CTk):
         # ── User section ──────────────────────────────────────────────────
         try:
             user_img = ctk.CTkImage(
-                light_image=Image.open("user.png"),
-                dark_image=Image.open("user.png"),
+                light_image=Image.open(resource_path("UI", "user.png")),
+                dark_image=Image.open(resource_path("UI", "user.png")),
                 size=(72, 72)
             )
             ctk.CTkLabel(self.side_bar, text="", image=user_img).pack(pady=(0, 10))
@@ -371,18 +388,17 @@ class JobFinderApp(ctk.CTk):
 
     def _show_reopen_button(self):
         """Small floating button that reopens the sidebar when it is hidden."""
-        if hasattr(self, "_reopen_btn") and self._reopen_btn.winfo_exists():
-            return
-        self._reopen_btn = ctk.CTkButton(
-            self.main_cointeiner,
-            text="☰",
-            width=36, height=36,
-            corner_radius=10,
-            font=("Segoe UI", 18),
-            fg_color=("gray85", "gray20"),
-            hover_color=("gray75", "gray30"),
-            command=self._toggle_sidebar
-        )
+        if not hasattr(self, "_reopen_btn") or not self._reopen_btn.winfo_exists():
+            self._reopen_btn = ctk.CTkButton(
+                self.main_cointeiner,
+                text="☰",
+                width=36, height=36,
+                corner_radius=10,
+                font=("Segoe UI", 18),
+                fg_color=("gray85", "gray20"),
+                hover_color=("gray75", "gray30"),
+                command=self._toggle_sidebar,
+            )
         self._reopen_btn.place(x=10, y=10)
 
     def _hide_reopen_button(self):
@@ -745,146 +761,221 @@ class JobFinderApp(ctk.CTk):
         def get_greeting() -> str:
             h = datetime.datetime.now().hour
             return "Good Morning" if h < 13 else "Good Afternoon" if h < 18 else "Good Night"
-
+ 
         def toggle_theme():
             mode = ctk.get_appearance_mode()
             new  = "Light" if mode == "Dark" else "Dark"
             ctk.set_appearance_mode(new)
             theme_btn.configure(text="☀️  Light Mode" if new == "Light" else "🌙  Dark Mode")
-
+ 
+        # Reset stale row weights left by other views
+        for _i in range(5):
+            self.main_cointeiner.grid_rowconfigure(_i, weight=0)
         self.main_cointeiner.grid_columnconfigure(0, weight=1)
-        self.main_cointeiner.grid_rowconfigure(2, weight=1)
-
+        self.main_cointeiner.grid_rowconfigure(3, weight=1)
+ 
         # ── Top bar ───────────────────────────────────────────────────────
         top_bar = ctk.CTkFrame(self.main_cointeiner, fg_color="transparent")
         top_bar.grid(row=0, column=0, sticky="ew", padx=24, pady=(18, 0))
         top_bar.grid_columnconfigure(0, weight=1)
-
+ 
         ctk.CTkLabel(
             top_bar,
             text=f"Hey, {get_greeting()} 👋",
             font=("Segoe UI", 26, "bold"),
-            anchor="w"
+            anchor="w",
         ).grid(row=0, column=0, sticky="w")
-
+ 
         theme_btn = ctk.CTkButton(
             top_bar, text="🌙  Dark Mode",
             width=130, height=34, corner_radius=17,
-            font=("Segoe UI", 13), command=toggle_theme
+            font=("Segoe UI", 13), command=toggle_theme,
         )
         theme_btn.grid(row=0, column=1, sticky="e")
-
+ 
         # ── Subtitle ──────────────────────────────────────────────────────
         ctk.CTkLabel(
             self.main_cointeiner,
             text="Look what we've found:",
             font=("Segoe UI", 15),
             text_color=("gray45", "gray65"),
-            anchor="w"
-        ).grid(row=1, column=0, sticky="w", padx=24, pady=(6, 14))
-
+            anchor="w",
+        ).grid(row=1, column=0, sticky="w", padx=24, pady=(6, 4))
+ 
         # ── Scrollable carousel ───────────────────────────────────────────
         scroll_frame = ctk.CTkScrollableFrame(
             self.main_cointeiner,
             fg_color="transparent",
             scrollbar_button_color=("gray75", "gray35"),
-            scrollbar_button_hover_color=("gray60", "gray50")
+            scrollbar_button_hover_color=("gray60", "gray50"),
         )
-        scroll_frame.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 16))
+        scroll_frame.grid(row=3, column=0, sticky="nsew", padx=16, pady=(0, 16))
         scroll_frame.grid_columnconfigure(0, weight=1)
-
-        # --------------------------------------------------
-        # TO DO: Checking if there are some jobs openings,
-        # else, just show the "Search for new jobs oppening" 
-        # buttom.
-        # --------------------------------------------------
-
-        sample_jobs = []
-        def fetch_for_jobs():
-
-
-            with _pg_connect() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT
-                            company_logo_path,
-                            company_name,
-                            job_title,
-                            salary_min,
-                            locate,
-                            deadline,
-                            url,
-                            similarity
-                        FROM jobs
-                        ORDER BY similarity DESC
-                    """)
-                    rows = cur.fetchall()
-
-            for row in rows:
-                (
-                    company_logo_path,
-                    company_name,
-                    job_title,
-                    salary_min,
-                    locate,
-                    deadline,
-                    url,
-                    similarity
-                ) = row
-
-                sample_jobs.append({
-                    "company_logo_path": company_logo_path or "",
-                    "company_name": company_name or "",
-                    "job_title": job_title or "",
-                    "salary": f"${salary_min:,.0f}/Y".replace(",", ".") if salary_min is not None else "",
-                    "location": locate or "",
-                    "deadline": deadline.strftime("%d/%m/%Y") if hasattr(deadline, "strftime") else str(deadline or ""),
-                    "link_url": url or "",
-                    "match_pct": similarity*100,
-                })
-        fetch_for_jobs()
-        ctk.CTkButton(
-            top_bar,
-            text="Search for new Jobs",            
-            font=("Segoe UI", 10, "bold"),
-            command=lambda: (
-                sample_jobs.clear(),  # substitua pelo nome real do dicionário
-                BrowsingForJobs(),
-
-            ),
-            width = 100,
-            height =50,
-            corner_radius=10,
-        ).grid(row=0, column=0, sticky="e", padx=20)
-
-        def clear_jobs_view():
-            sample_jobs.clear()
-
-            with _pg_connect() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("TRUNCATE TABLE jobs")
-                conn.commit()
-
+ 
+        sample_jobs: list[dict] = []
+ 
+        # ── Render cards ──────────────────────────────────────────────────
+        def render_jobs():
             for widget in scroll_frame.winfo_children():
                 widget.destroy()
+            if not sample_jobs:
+                ctk.CTkLabel(
+                    scroll_frame,
+                    text="No job openings found.\nClick «Search for new jobs» to fetch the latest listings.",
+                    font=("Segoe UI", 14),
+                    text_color=("gray45", "gray65"),
+                    justify="center",
+                ).grid(row=0, column=0, pady=60)
+                return
+            for idx, job in enumerate(sample_jobs):
+                self._create_job_card(scroll_frame, idx, job, in_favorites=False)
+ 
+        # ── Fetch from DB ─────────────────────────────────────────────────
+        def fetch_for_jobs():
+            sample_jobs.clear()
+            try:
+                with _pg_connect() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            SELECT
+                                company_logo_path,
+                                company_name,
+                                job_title,
+                                salary_min,
+                                locate,
+                                deadline,
+                                url,
+                                similarity,
+                                description
+                            FROM jobs
+                            ORDER BY similarity DESC NULLS LAST
+                        """)
+                        rows = cur.fetchall()
+ 
+                for (company_logo_path, company_name, job_title,
+                     salary_min, locate, deadline, url,
+                     similarity, description) in rows:
+                    sample_jobs.append({
+                        "company_logo_path": company_logo_path or "",
+                        "company_name":      company_name      or "",
+                        "job_title":         job_title         or "",
+                        "salary":            f"${salary_min:,.0f}/Y".replace(",", ".")
+                                             if salary_min is not None else "",
+                        "location":          locate            or "",
+                        "deadline":          deadline.strftime("%d/%m/%Y")
+                                             if hasattr(deadline, "strftime")
+                                             else str(deadline or ""),
+                        "link_url":          url               or "",
+                        "match_pct":         int(similarity * 100)
+                                             if similarity is not None else 0,
+                        "description":       description       or "",
+                    })
+            except Exception as exc:
+                print(f"[JobFinder] DB fetch error: {exc}")
+ 
+            render_jobs()
+ 
+        # ── Search: call BrowsingForJobs → refresh from DB ────────────────
+        def search_for_new_jobs():
+            search_btn.configure(state="disabled", text="⏳  Searching…")
+            for widget in scroll_frame.winfo_children():
+                widget.destroy()
+            ctk.CTkLabel(
+                scroll_frame,
+                text="⏳  Searching for new job openings, please wait…",
+                font=("Segoe UI", 14),
+                text_color=("gray45", "gray65"),
+            ).grid(row=0, column=0, pady=60)
+            self.update_idletasks()
+ 
+            def _run():
+                try:
+                    _call_browsing_for_jobs()
+                except Exception as exc:
+                    print(f"[JobFinder] BrowsingForJobs error: {exc}")
+                self.after(0, _on_done)
+ 
+            def _on_done():
+                fetch_for_jobs()   # fetches from DB then calls render_jobs()
+                search_btn.configure(state="normal", text="🔍  Search for new jobs")
+ 
+            threading.Thread(target=_run, daemon=True).start()
+ 
+        # ── Search button (row 2) ─────────────────────────────────────────
+        search_btn = ctk.CTkButton(
+            self.main_cointeiner,
+            text="🔍  Search for new jobs",
+            height=36, corner_radius=18,
+            font=("Segoe UI", 13, "bold"),
+            command=search_for_new_jobs,
+        )
+        search_btn.grid(row=2, column=0, sticky="w", padx=24, pady=(2, 10))
 
+        def clean_jobs():
+            sample_jobs.clear()
+            render_jobs()
 
         ctk.CTkButton(
             self.main_cointeiner,
-            text="Clean Jobs View",
-            font=("Segoe UI", 10),
-            command=clear_jobs_view,
-            width=50,
-            height=25,
-            corner_radius=5,
-        ).grid(row=1, column=0, sticky="e", padx=20)
+            text="🗑  Clean jobs",
+            height=36, corner_radius=18,
+            font=("Segoe UI", 13, "bold"),
+            fg_color="transparent",
+            text_color=("gray50", "gray60"),
+            hover_color=("gray88", "gray22"),
+            command=clean_jobs,
+        ).grid(row=2, column=0, sticky="e", padx=24, pady=(2, 10))
+ 
+        # Initial load
+        fetch_for_jobs()
 
-        for idx, job in enumerate(sample_jobs):
-            self._create_job_card(scroll_frame, idx, job, in_favorites=False)
+        # ── Search: call BrowsingForJobs then refresh from DB ─────────────
+        def search_for_new_jobs():
+            # Disable button and show a loading state immediately
+            search_btn.configure(state="disabled", text="⏳  Searching…")
+            for widget in scroll_frame.winfo_children():
+                widget.destroy()
+            ctk.CTkLabel(
+                scroll_frame,
+                text="⏳  Searching for new job openings, please wait…",
+                font=("Segoe UI", 14),
+                text_color=("gray45", "gray65"),
+            ).grid(row=0, column=0, pady=60)
+            self.update_idletasks()
 
-    # ─────────────────────────────────────────────────────────────────────────
-    #  SHARED JOB CARD BUILDER
-    # ─────────────────────────────────────────────────────────────────────────
+            def _run():
+                # BrowsingForJobs scrapes / populates the jobs table
+                try:
+                    _call_browsing_for_jobs()
+                except Exception as exc:
+                    print(f"[JobFinder] BrowsingForJobs error: {exc}")
+                # Schedule the UI update back on the main thread
+                self.after(0, _on_done)
+
+            def _on_done():
+                # Re-fetch from DB; render_jobs() handles the empty-state check
+                fetch_for_jobs()
+                search_btn.configure(state="normal", text="🔍  Search for new jobs")
+
+            threading.Thread(target=_run, daemon=True).start()
+
+        # ── Search button (row 2) ─────────────────────────────────────────
+        search_btn = ctk.CTkButton(
+            self.main_cointeiner,
+            text="🔍  Search for new jobs",
+            height=36, corner_radius=18,
+            font=("Segoe UI", 13, "bold"),
+            command=search_for_new_jobs,
+        )
+        search_btn.grid(row=2, column=0, sticky="w", padx=24, pady=(2, 10))
+
+        # Initial load from DB on home-screen entry
+        fetch_for_jobs()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SHARED JOB CARD BUILDER
+# ─────────────────────────────────────────────────────────────────────────────
 
     def _create_job_card(self, parent, row_idx: int, job: dict,
                          in_favorites: bool = False):
@@ -896,67 +987,49 @@ class JobFinderApp(ctk.CTk):
         deadline          = job.get("deadline", "")
         link_url          = job.get("link_url", "")
         match_pct         = job.get("match_pct", 0)
-
+        description       = job.get("description", "")
+ 
         card = ctk.CTkFrame(parent, corner_radius=16,
                             border_width=1, border_color=("gray80", "gray28"))
         card.grid(row=row_idx, column=0, sticky="ew", padx=8, pady=8)
         card.grid_columnconfigure(1, weight=1)
-
+ 
         # ── Logo ─────────────────────────────────────────────────────────
         try:
             response = requests.get(company_logo_path, timeout=10)
             response.raise_for_status()
-
             img = Image.open(BytesIO(response.content))
-
-            logo_img = ctk.CTkImage(
-                light_image=img,
-                dark_image=img,
-                size=(36, 36)
-            )
-
+            logo_img = ctk.CTkImage(light_image=img, dark_image=img, size=(36, 36))
             logo_lbl = ctk.CTkLabel(card, image=logo_img, text="")
             logo_lbl.image = logo_img
-
         except Exception:
             logo_lbl = ctk.CTkLabel(
-                card,
-                text=company_name[:2].upper(),
-                width=36,
-                height=36,
-                corner_radius=8,
-                fg_color=("gray85", "gray25"),
-                font=("Segoe UI", 12, "bold")
+                card, text=company_name[:2].upper(),
+                width=36, height=36, corner_radius=8,
+                fg_color=("gray85", "gray25"), font=("Segoe UI", 12, "bold"),
             )
-
-        logo_lbl.grid(
-            row=0,
-            column=0,
-            padx=(16, 10),
-            pady=(16, 4),
-            sticky="nw"
-        )
-
+        logo_lbl.grid(row=0, column=0, padx=(16, 10), pady=(16, 4), sticky="nw")
+ 
         # ── Header ───────────────────────────────────────────────────────
         hf = ctk.CTkFrame(card, fg_color="transparent")
         hf.grid(row=0, column=1, sticky="ew", pady=(16, 4))
         hf.grid_columnconfigure(0, weight=1)
-
+ 
         ctk.CTkLabel(hf, text=company_name, font=("Segoe UI", 11),
-                     text_color=("gray45", "gray65"), anchor="w"
+                     text_color=("gray45", "gray65"), anchor="w",
                      ).grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(hf, text=job_title, font=("Segoe UI", 16, "bold"),
                      anchor="w").grid(row=1, column=0, sticky="w")
-
+ 
         # ── Match arc ────────────────────────────────────────────────────
         arc_size   = 54
         arc_canvas = tk.Canvas(card, width=arc_size, height=arc_size,
                                highlightthickness=0)
         arc_canvas.grid(row=0, column=2, padx=(8, 12), pady=(14, 4), sticky="ne")
-
+ 
         def _draw_arc(event=None, _c=arc_canvas, _p=match_pct):
             _c.delete("all")
-            dark = ctk.get_appearance_mode() == "Dark"
+            dark  = ctk.get_appearance_mode() == "Dark"
             bg    = "#2b2b2b" if dark else "#f9f9f9"
             track = "#444"    if dark else "#ddd"
             fill  = "#3fa87c" if _p >= 75 else "#e0a040" if _p >= 50 else "#e05050"
@@ -967,37 +1040,60 @@ class JobFinderApp(ctk.CTk):
                           extent=-360*_p/100, outline=fill, width=3, style="arc")
             _c.create_text(cx, cy, text=f"{_p}%",
                            font=("Segoe UI", 8, "bold"), fill=fill)
-
+ 
         _draw_arc()
         arc_canvas.bind("<Configure>", _draw_arc)
-
+ 
         # ── Separator ────────────────────────────────────────────────────
         ctk.CTkFrame(card, height=1, fg_color=("gray82", "gray26")
                      ).grid(row=1, column=0, columnspan=3, sticky="ew",
                              padx=16, pady=(4, 8))
-
+ 
         # ── Footer ───────────────────────────────────────────────────────
         footer = ctk.CTkFrame(card, fg_color="transparent")
         footer.grid(row=2, column=0, columnspan=3, sticky="ew",
                     padx=16, pady=(0, 14))
         footer.grid_columnconfigure((0, 1, 2), weight=1)
-
+ 
         ctk.CTkLabel(footer, text=f"💰 Salary:\n{salary}",
-                     font=("Segoe UI", 11), justify="left", anchor="w"
+                     font=("Segoe UI", 11), justify="left", anchor="w",
                      ).grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(footer, text=f"📍 Location:\n{location}",
-                     font=("Segoe UI", 11), justify="left", anchor="w"
+                     font=("Segoe UI", 11), justify="left", anchor="w",
                      ).grid(row=0, column=1, sticky="w")
         ctk.CTkLabel(footer, text=f"⏰ Deadline:\n{deadline}",
-                     font=("Segoe UI", 11), justify="left", anchor="w"
+                     font=("Segoe UI", 11), justify="left", anchor="w",
                      ).grid(row=0, column=2, sticky="w")
-
-        # ── Link + Favorite ───────────────────────────────────────────────
+ 
+        # ── Description panel (row 4 — hidden until ^ is clicked) ────────
+        desc_frame = ctk.CTkFrame(card, fg_color=("gray92", "gray18"), corner_radius=8)
+ 
+        if description:
+            desc_box = ctk.CTkTextbox(
+                desc_frame, height=110, wrap="word",
+                font=("Segoe UI", 11), fg_color="transparent",
+                activate_scrollbars=True,
+            )
+            desc_box.insert("0.0", description)
+            desc_box.configure(state="disabled")
+            desc_box.pack(fill="both", expand=True, padx=8, pady=8)
+        else:
+            ctk.CTkLabel(
+                desc_frame,
+                text="No description available.",
+                font=("Segoe UI", 11),
+                text_color=("gray50", "gray60"),
+                anchor="w",
+            ).pack(fill="both", expand=True, padx=14, pady=10)
+ 
+        desc_state = {"visible": False}
+ 
+        # ── Link  |  ^desc  |  ★fav ──────────────────────────────────────
         action_row = ctk.CTkFrame(card, fg_color="transparent")
         action_row.grid(row=3, column=0, columnspan=3, sticky="ew",
                         padx=16, pady=(4, 14))
         action_row.grid_columnconfigure(0, weight=1)
-
+ 
         ctk.CTkButton(
             action_row,
             text=f"🔗  {link_url if link_url else 'No link provided'}",
@@ -1005,33 +1101,52 @@ class JobFinderApp(ctk.CTk):
             fg_color="transparent",
             text_color=("cornflowerblue", "deepskyblue"),
             hover_color=("gray90", "gray20"), height=26,
-            command=lambda u=link_url: webbrowser.open(u) if u else None
+            command=lambda u=link_url: webbrowser.open(u) if u else None,
         ).grid(row=0, column=0, sticky="w")
-
-        # ── ★ Favorite button ─────────────────────────────────────────────
-        # TODO: on app startup, query pg_is_favorite for each home card so
-        #       the star renders filled for jobs already in the DB.
+ 
+        desc_btn = ctk.CTkButton(
+            action_row, text="^",
+            width=36, height=36, corner_radius=18,
+            font=("Segoe UI", 15, "bold"), fg_color="transparent",
+            text_color=("gray50", "gray60"),
+            hover_color=("gray88", "gray22"),
+        )
+        desc_btn.grid(row=0, column=1, sticky="e", padx=(4, 0))
+ 
+        def _toggle_desc(_ds=desc_state, _df=desc_frame, _btn=desc_btn):
+            _ds["visible"] = not _ds["visible"]
+            if _ds["visible"]:
+                _df.grid(row=4, column=0, columnspan=3,
+                         sticky="ew", padx=16, pady=(0, 12))
+                _btn.configure(text="v")
+            else:
+                _df.grid_remove()
+                _btn.configure(text="^")
+ 
+        desc_btn.configure(command=_toggle_desc)
+ 
         try:
             initially_fav = pg_is_favorite(company_name, job_title)
         except Exception:
             initially_fav = in_favorites
-
+ 
         fav_state = {"active": initially_fav}
-
+ 
         fav_btn = ctk.CTkButton(
-            action_row, text="★" if fav_state["active"] else "☆",
+            action_row,
+            text="★" if fav_state["active"] else "☆",
             width=36, height=36, corner_radius=18,
             font=("Segoe UI", 20), fg_color="transparent",
             text_color=("gold", "gold") if fav_state["active"] else ("gray50", "gray60"),
             hover_color=("gray88", "gray22"),
         )
-        fav_btn.grid(row=0, column=1, sticky="e")
-
+        fav_btn.grid(row=0, column=2, sticky="e")
+ 
         def toggle_fav(_btn=fav_btn, _st=fav_state, _job=job, _card=card):
             _st["active"] = not _st["active"]
             _btn.configure(
                 text="★" if _st["active"] else "☆",
-                text_color=("gold", "gold") if _st["active"] else ("gray50", "gray60")
+                text_color=("gold", "gold") if _st["active"] else ("gray50", "gray60"),
             )
             try:
                 if _st["active"]:
@@ -1046,9 +1161,9 @@ class JobFinderApp(ctk.CTk):
                 _st["active"] = not _st["active"]
                 _btn.configure(
                     text="★" if _st["active"] else "☆",
-                    text_color=("gold", "gold") if _st["active"] else ("gray50", "gray60")
+                    text_color=("gold", "gold") if _st["active"] else ("gray50", "gray60"),
                 )
-
+ 
         fav_btn.configure(command=toggle_fav)
 
 
